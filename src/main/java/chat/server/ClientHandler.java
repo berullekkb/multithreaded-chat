@@ -1,257 +1,119 @@
 package chat.server;
 
+import static chat.protocole.Protocole.*;
+
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
-public class ClientHandler extends Thread {
+/**
+ * Participant connecté par socket TCP.
+ *
+ * Chaque instance s'exécute dans son propre thread (fourni par le pool du
+ * serveur) : elle lit les lignes du client en boucle, ce qui bloque
+ * uniquement ce thread et jamais les autres clients.
+ */
+public class ClientHandler extends Participant implements Runnable {
 
     private final Socket socket;
+    private final SalonDeChat salon;
+    private final int numero;
+    private Writer sortie;
 
-    private BufferedReader entree;
-    private PrintWriter sortie;
-
-    private String pseudo;
-
-    private boolean deconnecte = false;
-
-
-    public ClientHandler(Socket socket) {
-
+    public ClientHandler(Socket socket, SalonDeChat salon, int numero) {
+        super("tcp", socket.getRemoteSocketAddress().toString());
         this.socket = socket;
+        this.salon = salon;
+        this.numero = numero;
     }
-
 
     @Override
     public void run() {
-
+        Thread.currentThread().setName("client-tcp-" + numero);
+        setThread(Thread.currentThread().getName());
+        boolean departVolontaire = false;
         try {
+            socket.setTcpNoDelay(true);
+            // UTF-8 explicite : sans cela Windows utiliserait cp1252 et les
+            // accents seraient abîmés entre deux machines différentes.
+            BufferedReader entree = new BufferedReader(new InputStreamReader(
+                    socket.getInputStream(), StandardCharsets.UTF_8));
+            synchronized (this) {
+                sortie = new BufferedWriter(new OutputStreamWriter(
+                        socket.getOutputStream(), StandardCharsets.UTF_8));
+            }
 
-            entree =
-                    new BufferedReader(
-                            new InputStreamReader(
-                                    socket.getInputStream()
-                            )
-                    );
-
-            sortie =
-                    new PrintWriter(
-                            socket.getOutputStream(),
-                            true
-                    );
-
-
-            /*
-             * Le client doit d'abord avoir
-             * un pseudonyme valide.
-             */
-            gererPseudo();
-
-
-            /*
-             * Seulement maintenant,
-             * il devient un client actif du chat.
-             */
-            Serveur.ajouterClient(this);
-
-
-            System.out.println(
-                    pseudo + " est connecté."
-            );
-
-
-            Serveur.broadcast(
-                    pseudo
-                    + " a rejoint la conversation."
-            );
-
-
-            String message;
-
-
-            while (
-                    (message = entree.readLine())
-                    != null
-            ) {
-
-                System.out.println(
-                        pseudo
-                        + " -> "
-                        + message
-                );
-
-
-                if (
-                        message.equalsIgnoreCase(
-                                "exit"
-                        )
-                ) {
-
+            // 1. Phase pseudonyme : le client n'est pas encore dans le salon.
+            while (true) {
+                envoyer(PSEUDO);
+                String proposition = entree.readLine();
+                if (proposition == null) {
+                    return;
+                }
+                if (estDepart(proposition.trim())) {
+                    departVolontaire = true;
+                    return;
+                }
+                String erreur = salon.reserver(proposition, this);
+                if (erreur == null) {
                     break;
                 }
-
-
-                Serveur.broadcast(
-                        pseudo
-                        + " a dit : "
-                        + message
-                );
+                envoyer(ligne(ERREUR, erreur));
             }
 
+            // 2. Le client devient actif et reçoit les diffusions.
+            salon.rejoindre(this);
 
+            // 3. Boucle de lecture des messages.
+            String ligne;
+            while ((ligne = entree.readLine()) != null) {
+                if (!salon.traiter(this, ligne)) {
+                    departVolontaire = true;
+                    break;
+                }
+            }
         } catch (IOException e) {
-
-            System.out.println(
-                    "Connexion perdue avec "
-                    + (
-                        pseudo != null
-                        ? pseudo
-                        : "un client"
-                    )
-            );
-
+            // Déconnexion brutale (terminal fermé, réseau coupé...) :
+            // le nettoyage est fait dans finally.
         } finally {
-
-            deconnecter();
+            salon.quitter(this);
+            if (departVolontaire) {
+                envoyer(BYE);
+            }
+            fermer();
         }
     }
 
-
-    private void gererPseudo()
-            throws IOException {
-
-        while (true) {
-
-            sortie.println("PSEUDO");
-
-
-            String proposition =
-                    entree.readLine();
-
-
-            if (proposition == null) {
-
-                throw new IOException(
-                        "Client déconnecté."
-                );
-            }
-
-
-            proposition =
-                    proposition.trim();
-
-
-            if (proposition.isEmpty()) {
-
-                sortie.println(
-                        "ERREUR:Le pseudo ne peut pas être vide."
-                );
-
-                continue;
-            }
-
-
-            if (
-                    Serveur.ajouterPseudo(
-                            proposition
-                    )
-            ) {
-
-                pseudo = proposition;
-
-                sortie.println("OK");
-
-                break;
-
-            } else {
-
-                sortie.println(
-                        "ERREUR:Ce pseudonyme est déjà utilisé."
-                );
-            }
-        }
-    }
-
-
-    public void envoyerMessage(
-            String message) {
-
-        if (
-                sortie != null
-                && !sortie.checkError()
-        ) {
-
-            sortie.println(message);
-        }
-    }
-
-
-    private synchronized void deconnecter() {
-
-        if (deconnecte) {
-
+    /**
+     * Synchronisé : plusieurs threads (diffusions venant d'autres clients)
+     * peuvent écrire sur ce socket en même temps.
+     */
+    @Override
+    public synchronized void envoyer(String ligne) {
+        if (sortie == null || socket.isClosed()) {
             return;
         }
-
-        deconnecte = true;
-
-
-        Serveur.supprimerClient(this);
-
-
-        if (pseudo != null) {
-
-            Serveur.supprimerPseudo(pseudo);
-
-
-            System.out.println(
-                    pseudo
-                    + " s'est déconnecté."
-            );
-
-
-            Serveur.broadcast(
-                    pseudo
-                    + " a quitté la conversation."
-            );
-        }
-
-
         try {
-
-            if (entree != null) {
-
-                entree.close();
-            }
-
+            // « \n » explicite : println utiliserait « \r\n » sous Windows.
+            sortie.write(ligne);
+            sortie.write('\n');
+            sortie.flush();
         } catch (IOException e) {
-
-            System.out.println(
-                    "Erreur fermeture flux d'entrée."
-            );
+            // Le thread de lecture détectera la coupure et fera le ménage.
         }
+    }
 
-
-        if (sortie != null) {
-
-            sortie.close();
-        }
-
-
+    @Override
+    public void fermer() {
         try {
-
-            if (!socket.isClosed()) {
-
-                socket.close();
-            }
-
+            socket.close();
         } catch (IOException e) {
-
-            System.out.println(
-                    "Erreur fermeture socket."
-            );
+            // déjà fermé
         }
     }
 }

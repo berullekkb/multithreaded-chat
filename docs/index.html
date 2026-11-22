@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multithreaded Chat · sockets TCP et threads en Java</title>
+<meta name="description" content="Chat multi-clients en Java : un serveur à sockets TCP, un thread par client, une diffusion ordonnée et une interface web qui montre les lignes du protocole circuler dans le serveur.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2322313A'/%3E%3Cpath d='M8 10h9M8 16h13M8 22h7' stroke='%2329A39B' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='10' r='2.5' fill='%23F3A712'/%3E%3Ccircle cx='24' cy='22' r='2.5' fill='%23E4572E'/%3E%3C/svg%3E">
+</head>
+<body>
+<a class="evitement" href="#salon">Aller au salon</a>
+
+<header class="barre">
+  <a class="marque" href="#salon">
+    <svg aria-hidden="true" width="26" height="26" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#22313A"/><path d="M8 10h9M8 16h13M8 22h7" stroke="#29A39B" stroke-width="3" stroke-linecap="round"/><circle cx="23" cy="10" r="2.5" fill="#F3A712"/><circle cx="24" cy="22" r="2.5" fill="#E4572E"/></svg>
+    Multithreaded Chat
+  </a>
+  <nav aria-label="Sections">
+    <a href="#salon">Salon</a>
+    <a href="#protocole">Protocole</a>
+    <a href="#architecture">Architecture</a>
+  </nav>
+  <a class="depot" href="https://github.com/berullekkb/multithreaded-chat">Code sur GitHub</a>
+</header>
+
+<main>
+<!-- ============================================================ salon -->
+<section id="salon" class="salon" aria-labelledby="titre-salon">
+  <div class="entete">
+    <h1 id="titre-salon">Un salon de discussion où chaque client a son propre thread</h1>
+    <p>Un serveur Java à sockets TCP : chaque client est servi par un thread dédié, et tous les
+      messages sont diffusés dans le même ordre à tout le monde. Rejoignez le salon et regardez, à droite,
+      les lignes du protocole circuler dans le serveur.</p>
+    <p class="mode" id="mode" role="status">Recherche du serveur…</p>
+  </div>
+
+  <div class="poste">
+    <div class="discussion">
+      <ul class="connectes" id="connectes" aria-label="Personnes connectées"></ul>
+      <ol class="fil" id="fil" aria-live="polite" aria-label="Messages"></ol>
+
+      <form class="saisie" id="formRejoindre" autocomplete="off">
+        <label for="pseudo">Votre pseudo</label>
+        <div class="ligne-saisie">
+          <input id="pseudo" name="pseudo" maxlength="20" placeholder="ex. Jack" required>
+          <button type="submit" class="bouton principal">Rejoindre le salon</button>
+        </div>
+        <p class="erreur" id="erreurPseudo" role="alert"></p>
+      </form>
+
+      <form class="saisie" id="formMessage" autocomplete="off" hidden>
+        <label for="message" class="cache">Message</label>
+        <div class="ligne-saisie">
+          <input id="message" name="message" maxlength="500" placeholder="Écrire un message, ou /help">
+          <button type="submit" class="bouton principal">Envoyer</button>
+          <button type="button" class="bouton" id="quitter">Quitter</button>
+        </div>
+        <p class="astuce">/list, /msg &lt;pseudo&gt; &lt;texte&gt;, /help. Entrée pour envoyer.</p>
+      </form>
+    </div>
+
+    <aside class="serveur" aria-labelledby="titre-serveur">
+      <div class="serveur-tete">
+        <h2 id="titre-serveur">Dans le serveur</h2>
+        <dl class="mesures" id="mesures">
+          <div><dt>connectés</dt><dd id="mConnectes">0</dd></div>
+          <div><dt>threads actifs</dt><dd id="mThreads">–</dd></div>
+          <div><dt>messages</dt><dd id="mMessages">0</dd></div>
+          <div><dt>en ligne depuis</dt><dd id="mUptime">–</dd></div>
+        </dl>
+      </div>
+      <svg class="cablage" id="cablage" role="img" aria-label="Le serveur et un câble par client connecté, avec le nom de son thread"></svg>
+      <div class="actions-demo" id="actionsDemo" hidden>
+        <button type="button" class="bouton sombre" id="ajouterRobot">Ajouter un client simulé</button>
+        <button type="button" class="bouton sombre" id="retirerRobot">Retirer un client simulé</button>
+      </div>
+      <h3>Lignes échangées avec le serveur</h3>
+      <ol class="journal" id="journal" aria-label="Lignes du protocole"></ol>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================================================ protocole -->
+<section id="protocole" class="bloc" aria-labelledby="titre-protocole">
+  <h2 id="titre-protocole">Le protocole, ligne par ligne</h2>
+  <p class="chapo">Une ligne de texte UTF-8 par message. Le premier champ donne le type, le texte libre
+    est toujours le dernier champ : il peut donc contenir des « | ». Les clients console et les navigateurs
+    reçoivent exactement les mêmes lignes.</p>
+
+  <div class="tableau-defile">
+  <table class="types">
+    <thead><tr><th scope="col">Ligne envoyée par le serveur</th><th scope="col">Quand</th></tr></thead>
+    <tbody>
+      <tr><td><code>PSEUDO</code></td><td>À la connexion, et après chaque pseudo refusé.</td></tr>
+      <tr><td><code>OK|Jack</code></td><td>Le pseudo est accepté.</td></tr>
+      <tr><td><code>ERREUR|Ce pseudonyme est déjà utilisé.</code></td><td>Pseudo refusé, commande inconnue, destinataire introuvable.</td></tr>
+      <tr><td><code>MSG|14:02:11|Jack|Bonjour</code></td><td>Message public, envoyé à tous, expéditeur compris.</td></tr>
+      <tr><td><code>HISTO|14:02:11|Jack|Bonjour</code></td><td>Les 20 derniers messages publics, envoyés à un nouvel arrivant.</td></tr>
+      <tr><td><code>PRIVE|14:03:40|Sarah|Jack|Tu as fini ?</code></td><td>Message privé, reçu seulement par Sarah et Jack.</td></tr>
+      <tr><td><code>INFO|14:03:58|Youcef a rejoint la conversation.</code></td><td>Arrivées, départs, réponses à /list et /help.</td></tr>
+      <tr><td><code>USERS|Jack,Sarah,Youcef</code></td><td>Liste des connectés, à chaque arrivée ou départ.</td></tr>
+      <tr><td><code>BYE</code></td><td>Le serveur ferme la connexion (après exit, ou à l'arrêt du serveur).</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 class="sous-titre">Rejouer une session enregistrée sur le serveur Java</h3>
+  <p class="chapo" id="sourceTrace">Trois clients, onze étapes. Chaque flèche est une ligne réellement envoyée sur un socket.</p>
+  <div class="rejeu">
+    <div class="rejeu-commandes">
+      <button type="button" class="bouton principal" id="etapeSuivante">Étape suivante</button>
+      <button type="button" class="bouton" id="toutAfficher">Tout afficher</button>
+      <button type="button" class="bouton" id="recommencer">Recommencer</button>
+      <p class="legende" id="legende" aria-live="polite"></p>
+    </div>
+    <div class="sequence-defile"><svg class="sequence" id="sequence" role="img" aria-label="Diagramme de séquence de la session"></svg></div>
+  </div>
+</section>
+
+<!-- ============================================================ architecture -->
+<section id="architecture" class="bloc" aria-labelledby="titre-archi">
+  <h2 id="titre-archi">Qui travaille, et dans quel thread</h2>
+  <p class="chapo">Le serveur n'utilise que la bibliothèque standard de Java. Chaque rôle tourne dans
+    son propre thread, ce qui permet à un client lent de ne jamais bloquer les autres.</p>
+
+  <div class="threads">
+    <article>
+      <h3><code>main</code></h3>
+      <p><code>Serveur</code> attend les connexions avec <code>ServerSocket.accept()</code> et confie chaque nouveau socket au pool.</p>
+    </article>
+    <article>
+      <h3><code>client-tcp-N</code></h3>
+      <p>Un <code>ClientHandler</code> par client console : choix du pseudo, puis lecture de ses lignes avec <code>readLine()</code>. Bloquer ici ne bloque que ce client.</p>
+    </article>
+    <article>
+      <h3><code>web-N</code></h3>
+      <p>La <code>PasserelleWeb</code> sert cette page et tient un flux SSE ouvert par navigateur : les lignes du protocole y sont poussées une à une.</p>
+    </article>
+    <article>
+      <h3><code>web-nettoyeur</code></h3>
+      <p>Toutes les 5 s, retire les navigateurs fermés sans prévenir (20 s pour se reconnecter).</p>
+    </article>
+    <article>
+      <h3><code>reception</code> et <code>envoi</code></h3>
+      <p>Côté client console : un thread affiche ce qui arrive du serveur, l'autre lit le clavier. On peut écrire et recevoir en même temps.</p>
+    </article>
+  </div>
+
+  <h3 class="sous-titre">Ce qui garantit un salon cohérent</h3>
+  <ul class="garanties">
+    <li><strong>Pseudo unique, même sous la course.</strong> La réservation est un <code>ConcurrentHashMap.putIfAbsent</code> atomique, sans tenir compte de la casse : sur 20 demandes simultanées du même pseudo, une seule réussit (testé).</li>
+    <li><strong>Même ordre pour tout le monde.</strong> Toutes les diffusions passent par un seul verrou dans <code>SalonDeChat</code> : 30 clients qui écrivent au même instant reçoivent les 30 messages dans le même ordre (testé).</li>
+    <li><strong>Aucun message perdu à l'arrivée.</strong> L'historique et l'activation d'un nouvel arrivant se font sous ce même verrou.</li>
+    <li><strong>Départs toujours nettoyés.</strong> <code>exit</code>, terminal fermé ou réseau coupé : le bloc <code>finally</code> libère le pseudo et prévient les autres, une seule fois.</li>
+    <li><strong>Accents intacts entre Windows et Linux.</strong> Les sockets sont lus et écrits explicitement en UTF-8.</li>
+  </ul>
+
+  <h3 class="sous-titre">Lancer le vrai serveur sur votre machine</h3>
+  <div class="commandes">
+    <div>
+      <p>Compiler puis démarrer (Java 11 ou plus), depuis la racine du projet :</p>
+      <pre><code>javac -encoding UTF-8 -d bin (Get-ChildItem -Recurse src -Filter *.java).FullName
+java -cp bin chat.server.Serveur</code></pre>
+      <p>Ou double-cliquez sur <code>LANCER_SERVEUR.bat</code> : il compile, démarre le serveur et ouvre cette page sur <code>http://localhost:8080</code>.</p>
+    </div>
+    <div>
+      <p>Rejoindre le même salon depuis un terminal :</p>
+      <pre><code>java -cp bin chat.client.Client
+java -cp bin chat.client.Client 192.168.1.20 5000</code></pre>
+      <p>Les autres machines du réseau local peuvent ouvrir l'adresse affichée par le serveur.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="pied">
+  <p>Berulle Kamdem Kamdem, projet de programmation réseau en Java (sockets TCP, threads, concurrence).</p>
+</footer>
+
+<script type="module" src="assets/app.js"></script>
+</body>
+</html>

@@ -27,3 +27,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Python / tests
+__pycache__/
+.pytest_cache/
+
+# Node
+node_modules/

@@ -1,0 +1,58 @@
+name: Tester et publier le site
+# Site statique docs/ publié sur https://berullekkb.github.io/multithreaded-chat/
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Tests du serveur Java et parité de la démo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Compilation (avertissements inclus)
+        run: javac --release 11 -Xlint:all -Werror -encoding UTF-8 -d bin $(find src -name '*.java')
+      - name: Tests d'intégration (vrai serveur, TCP + HTTP)
+        run: python -m pytest -q
+      - name: Parité serveur simulé / serveur Java
+        run: node tests/js/parite.test.mjs
+
+  deploy:
+    name: Publier sur GitHub Pages
+    needs: tests
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4

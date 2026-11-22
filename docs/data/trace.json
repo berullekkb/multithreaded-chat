@@ -1,0 +1,169 @@
+{
+ "source": "serveur Java réel, scripts/enregistrer_trace.py",
+ "enregistre_le": "2026-11-22 16:47",
+ "clients": [
+  "Jack",
+  "Sarah",
+  "Youcef"
+ ],
+ "etapes": [
+  {
+   "client": "Jack",
+   "action": "connexion",
+   "texte": null,
+   "legende": "Jack ouvre un socket : le serveur lui confie un thread et demande un pseudo.",
+   "recus": {
+    "Jack": [
+     "PSEUDO"
+    ]
+   }
+  },
+  {
+   "client": "Jack",
+   "action": "envoi",
+   "texte": "Jack",
+   "legende": "Pseudo accepté : Jack reçoit la bienvenue, puis l'annonce et la liste des connectés.",
+   "recus": {
+    "Jack": [
+     "OK|Jack",
+     "INFO|16:47:34|Bienvenue Jack ! Tapez /help pour voir les commandes.",
+     "INFO|16:47:34|Jack a rejoint la conversation.",
+     "USERS|Jack"
+    ]
+   }
+  },
+  {
+   "client": "Sarah",
+   "action": "connexion",
+   "texte": null,
+   "legende": "Sarah se connecte à son tour ; son thread travaille en parallèle de celui de Jack.",
+   "recus": {
+    "Sarah": [
+     "PSEUDO"
+    ]
+   }
+  },
+  {
+   "client": "Sarah",
+   "action": "envoi",
+   "texte": "jack",
+   "legende": "« jack » est refusé : l'unicité des pseudos ne tient pas compte de la casse.",
+   "recus": {
+    "Sarah": [
+     "ERREUR|Ce pseudonyme est déjà utilisé.",
+     "PSEUDO"
+    ]
+   }
+  },
+  {
+   "client": "Sarah",
+   "action": "envoi",
+   "texte": "Sarah",
+   "legende": "Sarah entre dans le salon : tout le monde reçoit l'annonce et la nouvelle liste.",
+   "recus": {
+    "Jack": [
+     "INFO|16:47:36|Sarah a rejoint la conversation.",
+     "USERS|Jack,Sarah"
+    ],
+    "Sarah": [
+     "OK|Sarah",
+     "INFO|16:47:36|Bienvenue Sarah ! Tapez /help pour voir les commandes.",
+     "INFO|16:47:36|Sarah a rejoint la conversation.",
+     "USERS|Jack,Sarah"
+    ]
+   }
+  },
+  {
+   "client": "Jack",
+   "action": "envoi",
+   "texte": "Bonjour tout le monde",
+   "legende": "Un message public est diffusé à tous, expéditeur compris, avec l'heure du serveur.",
+   "recus": {
+    "Jack": [
+     "MSG|16:47:37|Jack|Bonjour tout le monde"
+    ],
+    "Sarah": [
+     "MSG|16:47:37|Jack|Bonjour tout le monde"
+    ]
+   }
+  },
+  {
+   "client": "Sarah",
+   "action": "envoi",
+   "texte": "/msg Jack Tu as fini le TD ?",
+   "legende": "Un message privé ne part que vers le destinataire et l'expéditeur.",
+   "recus": {
+    "Jack": [
+     "PRIVE|16:47:37|Sarah|Jack|Tu as fini le TD ?"
+    ],
+    "Sarah": [
+     "PRIVE|16:47:37|Sarah|Jack|Tu as fini le TD ?"
+    ]
+   }
+  },
+  {
+   "client": "Youcef",
+   "action": "connexion",
+   "texte": null,
+   "legende": "Youcef arrive en retard…",
+   "recus": {
+    "Youcef": [
+     "PSEUDO"
+    ]
+   }
+  },
+  {
+   "client": "Youcef",
+   "action": "envoi",
+   "texte": "Youcef",
+   "legende": "… et reçoit les derniers messages publics (HISTO) avant d'être annoncé.",
+   "recus": {
+    "Jack": [
+     "INFO|16:47:39|Youcef a rejoint la conversation.",
+     "USERS|Jack,Sarah,Youcef"
+    ],
+    "Sarah": [
+     "INFO|16:47:39|Youcef a rejoint la conversation.",
+     "USERS|Jack,Sarah,Youcef"
+    ],
+    "Youcef": [
+     "OK|Youcef",
+     "HISTO|16:47:37|Jack|Bonjour tout le monde",
+     "INFO|16:47:39|Bienvenue Youcef ! Tapez /help pour voir les commandes.",
+     "INFO|16:47:39|Youcef a rejoint la conversation.",
+     "USERS|Jack,Sarah,Youcef"
+    ]
+   }
+  },
+  {
+   "client": "Youcef",
+   "action": "envoi",
+   "texte": "/list",
+   "legende": "/list ne répond qu'à celui qui le demande.",
+   "recus": {
+    "Youcef": [
+     "INFO|16:47:40|Connectés (3) : Jack, Sarah, Youcef"
+    ]
+   }
+  },
+  {
+   "client": "Sarah",
+   "action": "envoi",
+   "texte": "exit",
+   "legende": "Sarah quitte : BYE ferme sa connexion, les autres sont prévenus et la liste est mise à jour.",
+   "recus": {
+    "Jack": [
+     "INFO|16:47:41|Sarah a quitté la conversation.",
+     "USERS|Jack,Youcef"
+    ],
+    "Sarah": [
+     "BYE"
+    ],
+    "Youcef": [
+     "INFO|16:47:41|Sarah a quitté la conversation.",
+     "USERS|Jack,Youcef"
+    ]
+   }
+  }
+ ]
+}
